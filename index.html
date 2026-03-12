@@ -1,1 +1,570 @@
-index.html — BD Capital Dashboard
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BD Capital – Construction Review</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  textarea { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const API_KEY = "AIzaSyAywamDcJ_muRwK0cP90v-XWnrFnJGvHJk";
+const SHEET_ID = "1qLt3LxqVxZxCMKRxRxyG3pImpvy5lMejnxU2rgKAu-g";
+const PIPELINE_TAB = "File Status";
+
+async function gsFetch(tab, range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(tab + "!" + range)}?key=${API_KEY}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message);
+  return json.values || [];
+}
+
+async function gsCell(tab, cell) {
+  const v = await gsFetch(tab, cell);
+  return v?.[0]?.[0] ?? "";
+}
+
+const ENTITLEMENT_CHECKLISTS = {
+  "Single Family": [
+    { id: "zoning", label: "Zoning confirmed for proposed use (by-right)" },
+    { id: "lot_size", label: "Lot size supports proposed sq ft / FAR / coverage" },
+    { id: "setbacks", label: "Setbacks confirmed — structure is buildable" },
+    { id: "building_permit", label: "Building permit issued (vertical)" },
+    { id: "utility_confirm", label: "Utility connections confirmed" },
+    { id: "impact_fees", label: "Impact fees confirmed / paid in full" },
+  ],
+  "Fix & Flip": [
+    { id: "zoning", label: "Zoning confirmed for proposed use" },
+    { id: "existing_permits", label: "Existing unpermitted work identified" },
+    { id: "reno_permit", label: "Renovation permit issued or confirmable" },
+    { id: "utility_confirm", label: "Utilities active / confirmed" },
+    { id: "hoa", label: "HOA restrictions reviewed (if applicable)" },
+  ],
+  "Multifamily": [
+    { id: "zoning", label: "Zoning / density confirmed" },
+    { id: "resolution", label: "Planning board resolution recorded" },
+    { id: "bond_agree", label: "Bond agreements reviewed" },
+    { id: "recorded_plat", label: "Recorded plat confirmed" },
+    { id: "site_dev_permit", label: "Site development permit issued" },
+    { id: "vert_permit", label: "Vertical building permits issued or issuable" },
+    { id: "utility_agree", label: "Utility capacity agreements confirmed" },
+    { id: "impact_fees", label: "Impact fees confirmed / posted" },
+    { id: "engineering", label: "Civil / structural engineering approved" },
+    { id: "architectural", label: "Architectural plans reviewed" },
+    { id: "env_compliance", label: "Environmental compliance confirmed" },
+  ],
+  "Horizontal": [
+    { id: "zoning", label: "Zoning / density confirmed" },
+    { id: "recorded_plat", label: "Plat recorded or in process" },
+    { id: "resolution", label: "Municipal approvals in place" },
+    { id: "civil_eng", label: "Civil engineering / grading plans approved" },
+    { id: "utility_agree", label: "Utility master agreements confirmed" },
+    { id: "impact_fees", label: "Impact fees confirmed" },
+    { id: "env_compliance", label: "Environmental / wetlands review complete" },
+    { id: "horiz_permit", label: "Mass grading / horizontal permit issued" },
+  ],
+};
+
+const BUDGET_CHECKLIST = [
+  { id: "hard_cost", label: "Hard costs realistic for market / product type" },
+  { id: "cost_psf", label: "Cost per sq ft aligns with comparable projects" },
+  { id: "gc_fee", label: "GC fee and builder profit properly structured" },
+  { id: "contingency", label: "Contingency adequate for borrower experience level" },
+  { id: "soft_costs", label: "Soft costs, permits, and impact fees accounted for" },
+  { id: "front_load", label: "Budget not front-loaded to extract early draws" },
+  { id: "scope_match", label: "Budget scope matches plans, permits, and appraisal" },
+  { id: "line_items", label: "No missing, duplicated, or inflated line items" },
+  { id: "cost_complete", label: "Cost-to-complete matches construction stage" },
+];
+
+const APPRAISAL_CHECKLIST = [
+  { id: "comps_valid", label: "Comparable sales valid (proximity, timing, size)" },
+  { id: "sqft_match", label: "Appraised sq ft matches permitted plans" },
+  { id: "bed_bath_match", label: "Bed/bath configuration matches project scope" },
+  { id: "finish_level", label: "Finish level assumption consistent with budget" },
+  { id: "arv_realistic", label: "ARV reflects realistic liquidation value" },
+  { id: "no_inflation", label: "No evidence of appraisal inflation" },
+  { id: "location_comps", label: "Comps not relying on superior locations" },
+];
+
+const DOC_FIELDS = [
+  "Executed LOI","Processing Deposit","Auth Form","Atty/Title Contact Info",
+  "Welcome Email Sent","ACH Form","PFS/REO","Credit Report","Appraisal","Flood Cert.",
+  "Borrower Background Report","Borrower UCC Search","Borrower OFAC Search","Experience",
+  "Exp. (Supporting Documentation)","Like in Kind Experience","2 Months Recent Bank Statements",
+  "Photo ID","Purchase Agreement","Assignment Contract (If Applicable)",
+  "Current Payoff Statement (Refinances)","Budget","Plans/Drawings","LLC SS4/EIN","LLC OA",
+  "LLC Articles or Org","Form Registration for Foreign Entities","LLC COGS","LLC OFAC",
+  "LLC UCC","Property Insurance","Flood Insurance","Title Order","Title Report",
+  "Judgement Search","CPL","Wire","COGS","E&O","Prelim HUD","Tax Certificate","EMD",
+  "Tideland (NJ)","Mortgage Payoff","Notice of Settlement","Survey for Title"
+];
+
+const SC = {
+  "CTC":             { bg:"#d1fae5", text:"#065f46", dot:"#10b981" },
+  "Not CTC":         { bg:"#fee2e2", text:"#7f1d1d", dot:"#ef4444" },
+  "Clear to Close":  { bg:"#d1fae5", text:"#065f46", dot:"#10b981" },
+  "Processing":      { bg:"#fef9c3", text:"#713f12", dot:"#eab308" },
+  "Hold":            { bg:"#fde8d8", text:"#7c2d12", dot:"#f97316" },
+  "Dead":            { bg:"#1e293b", text:"#475569", dot:"#334155" },
+  "Under BD Review": { bg:"#ede9fe", text:"#4c1d95", dot:"#8b5cf6" },
+  "default":         { bg:"#f1f5f9", text:"#475569", dot:"#94a3b8" },
+};
+const getSC = (s) => SC[s] || SC["default"];
+
+const TABS = ["Scope & Deal","Entitlement","Budget","Appraisal","Deliverables","CR Notes"];
+const FILTERS = ["All","CTC","Not CTC","Clear to Close","Processing","Hold","Dead"];
+
+const fmt$ = (v) => {
+  if (!v || v === "") return "—";
+  const n = parseFloat(String(v).replace(/[$,]/g,""));
+  return isNaN(n) ? String(v) : "$" + n.toLocaleString();
+};
+
+const getDealType = (t) => {
+  if (!t) return "Single Family";
+  if (/multi/i.test(t)) return "Multifamily";
+  if (/horizontal|land/i.test(t)) return "Horizontal";
+  if (/flip|rehab/i.test(t)) return "Fix & Flip";
+  return "Single Family";
+};
+
+function Checklist({ items, checks, onToggle }) {
+  const done = items.filter(i => checks?.[i.id]).length;
+  const pct = items.length ? Math.round(done / items.length * 100) : 0;
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+        <span style={{ fontSize:11, color:"#64748b" }}>{done}/{items.length} complete</span>
+        <span style={{ fontSize:11, fontWeight:700, color: pct===100?"#10b981":"#3b82f6" }}>{pct}%</span>
+      </div>
+      <div style={{ height:4, background:"#334155", borderRadius:2, marginBottom:14 }}>
+        <div style={{ height:"100%", borderRadius:2, background: pct===100?"#10b981":"#3b82f6", width:`${pct}%`, transition:"width 0.3s" }} />
+      </div>
+      {items.map(item => {
+        const checked = checks?.[item.id] || false;
+        return (
+          <div key={item.id} onClick={() => onToggle(item.id)}
+            style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:"1px solid #334155", cursor:"pointer" }}>
+            <div style={{
+              width:17, height:17, borderRadius:4, flexShrink:0,
+              border: checked?"none":"2px solid #475569",
+              background: checked?"#3b82f6":"transparent",
+              display:"flex", alignItems:"center", justifyContent:"center"
+            }}>{checked && <span style={{ color:"#fff", fontSize:10 }}>✓</span>}</div>
+            <span style={{ fontSize:12, color: checked?"#64748b":"#cbd5e1", textDecoration: checked?"line-through":"none" }}>{item.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function App() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [selAddr, setSelAddr] = useState(null);
+  const [dealData, setDealData] = useState({});
+  const [dealLoading, setDealLoading] = useState(false);
+  const [local, setLocal] = useState({});
+  const [tab, setTab] = useState("Scope & Deal");
+  const [filter, setFilter] = useState("All");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const vals = await gsFetch(PIPELINE_TAB, "A1:BH200");
+        if (!vals || vals.length < 2) { setErr("No data returned from sheet."); setLoading(false); return; }
+        const parsed = [];
+        for (let i = 1; i < vals.length; i++) {
+          const r = vals[i];
+          const addr = (r[1] || "").trim();
+          if (!addr) continue;
+          const docStatuses = {};
+          DOC_FIELDS.forEach((f, fi) => { docStatuses[f] = (r[15 + fi] || "").trim(); });
+          parsed.push({
+            addr,
+            tabName: addr.split(",")[0].trim(),
+            borrower: (r[2] || "").trim(),
+            closing: (r[0] || "").trim(),
+            loan: (r[13] || "").trim(),
+            ctc: (r[7] || "").trim(),
+            status: (r[5] || "").trim(),
+            issues: (r[6] || "0").trim(),
+            upb: (r[12] || "").trim(),
+            bd: (r[3] || "").trim(),
+            docStatuses,
+          });
+        }
+        setRows(parsed);
+        if (parsed.length > 0) setSelAddr(parsed[0].addr);
+      } catch(e) { setErr("Failed to load pipeline: " + e.message); }
+      setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!selAddr || dealData[selAddr]) return;
+    const p = rows.find(r => r.addr === selAddr);
+    if (!p) return;
+    (async () => {
+      setDealLoading(true);
+      const t = p.tabName;
+      try {
+        const [
+          borrowerName, totalLoan, propType, loanType,
+          aivActual, arvActual,
+          sqftSub, bedsSub, bathsSub,
+          sqftActual, bedsActual, bathsActual,
+          zoningStatus, budgetStatus, plansStatus, ctcStatus, loanNum,
+          hardCostSub, softCostSub, siteDevSub,
+          hardCostAct, softCostAct, siteDevAct,
+        ] = await Promise.all([
+          gsCell(t,"C81"), gsCell(t,"D103"), gsCell(t,"C84"), gsCell(t,"C86"),
+          gsCell(t,"C107"), gsCell(t,"C108"),
+          gsCell(t,"G19"), gsCell(t,"G20"), gsCell(t,"G21"),
+          gsCell(t,"D240"), gsCell(t,"D238"), gsCell(t,"D239"),
+          gsCell(t,"C242"), gsCell(t,"C245"), gsCell(t,"C246"),
+          gsCell(t,"H249"), gsCell(t,"C83"),
+          gsCell(t,"C228"), gsCell(t,"C229"), gsCell(t,"C230"),
+          gsCell(t,"D228"), gsCell(t,"D229"), gsCell(t,"D230"),
+        ]);
+        const story = await gsFetch(t,"B193:K200").then(v=>v.flat().filter(Boolean).join(" ")).catch(()=>"");
+        const notes = await gsFetch(t,"G252:K260").then(v=>v.flat().filter(Boolean).join(" ")).catch(()=>"");
+        const cond  = await gsFetch(t,"B252:E260").then(v=>v.flat().filter(Boolean).join(" ")).catch(()=>"");
+        setDealData(prev => ({ ...prev, [selAddr]: {
+          borrowerName, totalLoan, propType, loanType,
+          aivActual, arvActual, sqftSub, bedsSub, bathsSub,
+          sqftActual, bedsActual, bathsActual,
+          zoningStatus, budgetStatus, plansStatus, ctcStatus, loanNum,
+          hardCostSub, softCostSub, siteDevSub,
+          hardCostAct, softCostAct, siteDevAct,
+          borrowerStory: story, ctcNotes: notes, specialConditions: cond,
+        }}));
+      } catch(e) { console.error("Deal load error:", e); }
+      setDealLoading(false);
+    })();
+  }, [selAddr, rows]);
+
+  const getLoc = () => local[selAddr] || {};
+  const setLoc = (patch) => setLocal(p => ({ ...p, [selAddr]: { ...p[selAddr], ...patch } }));
+  const toggleCheck = (section, key) => {
+    const cur = getLoc();
+    setLoc({ [section]: { ...cur[section], [key]: !cur[section]?.[key] } });
+  };
+
+  const pDeal = rows.find(r => r.addr === selAddr);
+  const dd = dealData[selAddr] || {};
+  const loc = getLoc();
+  const dealType = getDealType(dd.propType);
+  const entList = ENTITLEMENT_CHECKLISTS[dealType] || ENTITLEMENT_CHECKLISTS["Single Family"];
+  const ctcDisplay = dd.ctcStatus || pDeal?.ctc || "Not Started";
+  const scColors = getSC(ctcDisplay);
+
+  const filtered = filter === "All" ? rows : rows.filter(r => r.ctc === filter || r.status === filter);
+  const openDocs = pDeal ? Object.entries(pDeal.docStatuses).filter(([,v]) =>
+    v && !["Cleared","N/A","Not Required","Not in a Flood Zone",""].includes(v)
+  ) : [];
+
+  if (loading) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#0f172a", color:"#64748b", gap:12 }}>
+      <div style={{ width:28, height:28, border:"3px solid #334155", borderTop:"3px solid #3b82f6", borderRadius:"50%", animation:"spin 1s linear infinite" }} />
+      <div style={{ fontSize:13 }}>Loading pipeline from Google Sheets...</div>
+    </div>
+  );
+
+  if (err) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#0f172a", color:"#f87171", gap:10, padding:32, textAlign:"center" }}>
+      <div style={{ fontSize:24 }}>⚠️</div>
+      <div style={{ fontSize:14, fontWeight:600 }}>{err}</div>
+      <div style={{ fontSize:12, color:"#64748b", maxWidth:400 }}>Make sure the sheet is set to "Anyone with the link can view"</div>
+    </div>
+  );
+
+  return (
+    <div style={{ display:"flex", height:"100vh", overflow:"hidden" }}>
+
+      {/* SIDEBAR */}
+      <div style={{ width:268, background:"#1e293b", borderRight:"1px solid #334155", display:"flex", flexDirection:"column", flexShrink:0 }}>
+        <div style={{ padding:"14px 16px 10px", borderBottom:"1px solid #334155" }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#64748b", letterSpacing:"0.1em", textTransform:"uppercase" }}>BD Capital</div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#f8fafc", marginTop:2 }}>Construction Review</div>
+          <div style={{ fontSize:10, color:"#64748b", marginTop:1 }}>{rows.length} deals in pipeline</div>
+        </div>
+        <div style={{ padding:"8px 10px", borderBottom:"1px solid #334155", display:"flex", gap:3, flexWrap:"wrap" }}>
+          {FILTERS.map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              padding:"3px 7px", borderRadius:4, fontSize:9, fontWeight:600, cursor:"pointer", border:"none",
+              background: filter===f?"#3b82f6":"#334155", color: filter===f?"#fff":"#94a3b8"
+            }}>{f}</button>
+          ))}
+        </div>
+        <div style={{ overflowY:"auto", flex:1 }}>
+          {filtered.map(d => {
+            const isSel = d.addr === selAddr;
+            const sc = getSC(d.ctc);
+            const issues = parseInt(d.issues) || 0;
+            return (
+              <div key={d.addr} onClick={() => { setSelAddr(d.addr); setTab("Scope & Deal"); }}
+                style={{ padding:"10px 13px", cursor:"pointer", borderBottom:"1px solid #0f172a",
+                  borderLeft: isSel?"3px solid #3b82f6":"3px solid transparent",
+                  background: isSel?"#263148":"transparent" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:6, marginBottom:2 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#f1f5f9", flex:1, lineHeight:1.3 }}>{d.borrower || d.tabName}</div>
+                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 5px", borderRadius:8, background:sc.bg, color:sc.text, whiteSpace:"nowrap", flexShrink:0 }}>{d.ctc||"—"}</span>
+                </div>
+                <div style={{ fontSize:10, color:"#64748b", marginBottom:3 }}>{d.tabName}</div>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <span style={{ fontSize:10, color:"#475569" }}>{fmt$(d.loan)}</span>
+                  <span style={{ fontSize:9, color:"#334155" }}>· {d.closing}</span>
+                  {issues > 0 && <span style={{ fontSize:9, padding:"1px 5px", borderRadius:3, background:"#7f1d1d", color:"#fca5a5", fontWeight:700 }}>⚠{issues}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* MAIN */}
+      {pDeal ? (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ padding:"11px 20px", background:"#1e293b", borderBottom:"1px solid #334155", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:15, fontWeight:700, color:"#f8fafc", display:"flex", alignItems:"center", gap:8 }}>
+                {dd.borrowerName || pDeal.borrower}
+                {dealLoading && <div style={{ width:12, height:12, border:"2px solid #334155", borderTop:"2px solid #3b82f6", borderRadius:"50%", animation:"spin 1s linear infinite" }} />}
+              </div>
+              <div style={{ fontSize:10, color:"#64748b", marginTop:1 }}>{pDeal.addr}{dd.loanNum ? ` · ${dd.loanNum}` : ""}</div>
+            </div>
+            <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+              {[["Loan",fmt$(dd.totalLoan||pDeal.loan)],["AIV",fmt$(dd.aivActual)],["ARV",fmt$(dd.arvActual)],["Close",pDeal.closing]].map(([k,v])=>(
+                <div key={k} style={{ textAlign:"right" }}>
+                  <div style={{ fontSize:9, color:"#64748b", textTransform:"uppercase" }}>{k}</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:"#f8fafc" }}>{v||"—"}</div>
+                </div>
+              ))}
+              <div style={{ padding:"4px 11px", borderRadius:6, background:scColors.bg, color:scColors.text, fontWeight:700, fontSize:11 }}>{ctcDisplay}</div>
+            </div>
+          </div>
+
+          <div style={{ display:"flex", background:"#1e293b", borderBottom:"1px solid #334155", paddingLeft:20 }}>
+            {TABS.map(t => (
+              <button key={t} onClick={() => setTab(t)} style={{
+                padding:"8px 13px", fontSize:11, fontWeight:600, border:"none", cursor:"pointer", background:"transparent",
+                color: tab===t?"#3b82f6":"#64748b",
+                borderBottom: tab===t?"2px solid #3b82f6":"2px solid transparent",
+              }}>{t}</button>
+            ))}
+          </div>
+
+          <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+
+            {tab === "Scope & Deal" && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Scope — Submitted vs. Verified</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:4, marginBottom:6 }}>
+                    {["Field","Submitted","Verified"].map(h=><div key={h} style={{ fontSize:9, fontWeight:700, color:"#475569", textTransform:"uppercase" }}>{h}</div>)}
+                  </div>
+                  {[["Sq Ft",dd.sqftSub,dd.sqftActual],["Beds",dd.bedsSub,dd.bedsActual],["Baths",dd.bathsSub,dd.bathsActual]].map(([l,s,a])=>{
+                    const mis = s && a && String(s).trim()!==String(a).trim();
+                    return (
+                      <div key={l} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:4, padding:"6px 0", borderBottom:"1px solid #334155" }}>
+                        <span style={{ fontSize:11, color:"#94a3b8" }}>{l}</span>
+                        <span style={{ fontSize:11, color:"#cbd5e1", fontWeight:600 }}>{s||"—"}</span>
+                        <span style={{ fontSize:11, fontWeight:700, color: mis?"#f87171":a?"#34d399":"#64748b" }}>{a||"—"} {mis?"⚠":a?"✓":""}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    {[["Type",dd.propType],["Loan",dd.loanType],["Deal",dealType],["BD",pDeal.bd]].map(([k,v])=>(
+                      <div key={k}><div style={{ fontSize:9, color:"#475569", textTransform:"uppercase", marginBottom:1 }}>{k}</div>
+                      <div style={{ fontSize:11, fontWeight:600, color:"#f1f5f9" }}>{v||"—"}</div></div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Deal Metrics</div>
+                  {[["Total Loan",fmt$(dd.totalLoan||pDeal.loan)],["UPB (Day 1)",fmt$(pDeal.upb)],["AIV",fmt$(dd.aivActual)],["ARV",fmt$(dd.arvActual)],["Closing",pDeal.closing],["Status",pDeal.status],["Issues",pDeal.issues]].map(([k,v])=>(
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:"1px solid #334155" }}>
+                      <span style={{ fontSize:11, color:"#64748b" }}>{k}</span>
+                      <span style={{ fontSize:11, fontWeight:600, color:"#f1f5f9" }}>{v||"—"}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ gridColumn:"1/-1", background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Borrower Story</div>
+                  <div style={{ fontSize:12, color:"#cbd5e1", lineHeight:1.7, maxHeight:120, overflowY:"auto" }}>{dd.borrowerStory || "Not populated."}</div>
+                </div>
+              </div>
+            )}
+
+            {tab === "Entitlement" && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Zoning Status</div>
+                  <div style={{ display:"inline-block", padding:"3px 10px", borderRadius:5, fontSize:12, fontWeight:700,
+                    background: dd.zoningStatus==="Cleared"?"#d1fae5":dd.zoningStatus==="Pending"?"#fef9c3":"#1e293b",
+                    color: dd.zoningStatus==="Cleared"?"#065f46":dd.zoningStatus==="Pending"?"#713f12":"#94a3b8" }}>
+                    {dd.zoningStatus||"—"}
+                  </div>
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>Checklist Type</div>
+                  <div style={{ fontSize:12, fontWeight:600, color:"#f1f5f9" }}>{dealType}</div>
+                  <div style={{ fontSize:10, color:"#64748b", marginTop:2 }}>Auto-selected from property type</div>
+                </div>
+                <div style={{ gridColumn:"1/-1", background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Entitlement Checklist — {dealType}</div>
+                  <Checklist items={entList} checks={loc.entitlementChecks} onToggle={k=>toggleCheck("entitlementChecks",k)} />
+                </div>
+              </div>
+            )}
+
+            {tab === "Budget" && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div style={{ gridColumn:"1/-1", background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Budget Summary</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1.5fr 1fr 1fr 1fr", gap:4, marginBottom:6 }}>
+                    {["Line Item","Submitted","Actual","Delta"].map(h=><div key={h} style={{ fontSize:9, fontWeight:700, color:"#475569", textTransform:"uppercase" }}>{h}</div>)}
+                  </div>
+                  {[["Hard Costs",dd.hardCostSub,dd.hardCostAct],["Soft Costs",dd.softCostSub,dd.softCostAct],["Site Dev",dd.siteDevSub,dd.siteDevAct]].map(([l,s,a])=>{
+                    const sv = parseFloat(String(s||0).replace(/[$,]/g,""))||0;
+                    const av = parseFloat(String(a||0).replace(/[$,]/g,""))||0;
+                    const delta = av - sv;
+                    return (
+                      <div key={l} style={{ display:"grid", gridTemplateColumns:"1.5fr 1fr 1fr 1fr", gap:4, padding:"6px 0", borderBottom:"1px solid #334155" }}>
+                        <span style={{ fontSize:11, color:"#94a3b8" }}>{l}</span>
+                        <span style={{ fontSize:11, color:"#cbd5e1" }}>{fmt$(s)}</span>
+                        <span style={{ fontSize:11, fontWeight:600, color:"#f1f5f9" }}>{fmt$(a)}</span>
+                        <span style={{ fontSize:11, fontWeight:600, color: delta>0?"#f87171":delta<0?"#34d399":"#64748b" }}>{delta!==0?(delta>0?"+":"")+fmt$(Math.abs(delta)):"—"}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginTop:8, display:"flex", gap:16 }}>
+                    {[["Budget",dd.budgetStatus],["Plans",dd.plansStatus]].map(([k,v])=>(
+                      <div key={k}><div style={{ fontSize:9, color:"#475569", textTransform:"uppercase", marginBottom:1 }}>{k}</div>
+                      <div style={{ fontSize:11, fontWeight:700, color: v==="Cleared"?"#34d399":v==="RCVD"?"#60a5fa":"#f59e0b" }}>{v||"—"}</div></div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ gridColumn:"1/-1", background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Budget Review Checklist</div>
+                  <Checklist items={BUDGET_CHECKLIST} checks={loc.budgetChecks} onToggle={k=>toggleCheck("budgetChecks",k)} />
+                </div>
+              </div>
+            )}
+
+            {tab === "Appraisal" && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Values</div>
+                  {[["AIV",fmt$(dd.aivActual)],["ARV",fmt$(dd.arvActual)]].map(([k,v])=>(
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #334155" }}>
+                      <span style={{ fontSize:11, color:"#64748b" }}>{k}</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:"#f1f5f9" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Verified Scope</div>
+                  <div style={{ fontSize:11, color:"#94a3b8" }}>Sq Ft: <strong style={{ color:"#f1f5f9" }}>{dd.sqftActual||"—"}</strong></div>
+                  <div style={{ fontSize:11, color:"#94a3b8", marginTop:4 }}>Beds/Baths: <strong style={{ color:"#f1f5f9" }}>{dd.bedsActual||"—"} / {dd.bathsActual||"—"}</strong></div>
+                </div>
+                <div style={{ gridColumn:"1/-1", background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Appraisal Review Checklist</div>
+                  <Checklist items={APPRAISAL_CHECKLIST} checks={loc.appraisalChecks} onToggle={k=>toggleCheck("appraisalChecks",k)} />
+                </div>
+              </div>
+            )}
+
+            {tab === "Deliverables" && (
+              <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>Open Items</div>
+                <div style={{ fontSize:11, color:"#475569", marginBottom:12 }}>All items not marked Cleared — live from File Status tab.</div>
+                {openDocs.length === 0
+                  ? <div style={{ fontSize:12, color:"#34d399" }}>✓ All documents cleared</div>
+                  : openDocs.map(([name, status]) => {
+                    const bg = status==="Issue-see notes"?"#7f1d1d":status==="RCVD"?"#1e3a5f":"#292524";
+                    const tx = status==="Issue-see notes"?"#fca5a5":status==="RCVD"?"#93c5fd":"#d6d3d1";
+                    return (
+                      <div key={name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 0", borderBottom:"1px solid #334155" }}>
+                        <span style={{ fontSize:12, color:"#cbd5e1" }}>{name}</span>
+                        <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:8, background:bg, color:tx }}>{status}</span>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+
+            {tab === "CR Notes" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Review Progress</div>
+                  {[["Entitlement",loc.entitlementChecks,entList],["Budget",loc.budgetChecks,BUDGET_CHECKLIST],["Appraisal",loc.appraisalChecks,APPRAISAL_CHECKLIST]].map(([label,checks,list])=>{
+                    const p = list.length ? Math.round(list.filter(i=>checks?.[i.id]).length/list.length*100) : 0;
+                    return (
+                      <div key={label} style={{ marginBottom:10 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                          <span style={{ fontSize:11, color:"#94a3b8" }}>{label}</span>
+                          <span style={{ fontSize:11, fontWeight:600, color: p===100?"#10b981":"#f59e0b" }}>{p}%</span>
+                        </div>
+                        <div style={{ height:4, background:"#334155", borderRadius:2 }}>
+                          <div style={{ height:"100%", borderRadius:2, background: p===100?"#10b981":"#f59e0b", width:`${p}%`, transition:"width 0.3s" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>CTC Notes (from sheet)</div>
+                  <div style={{ fontSize:12, color:"#cbd5e1", lineHeight:1.7, maxHeight:140, overflowY:"auto", padding:10, background:"#0f172a", borderRadius:6 }}>{dd.ctcNotes||"Not populated."}</div>
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Special Conditions (from sheet)</div>
+                  <div style={{ fontSize:12, color:"#cbd5e1", lineHeight:1.7, padding:10, background:"#0f172a", borderRadius:6 }}>{dd.specialConditions||"None."}</div>
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:14, border:"1px solid #334155" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>My Notes</div>
+                  <textarea value={loc.myNotes||""} onChange={e=>setLoc({myNotes:e.target.value})}
+                    style={{ width:"100%", minHeight:80, padding:10, background:"#0f172a", border:"1px solid #334155", borderRadius:6, color:"#cbd5e1", fontSize:12, lineHeight:1.6, resize:"vertical" }}
+                    placeholder="Working notes..." />
+                </div>
+                <div style={{ background:"#1e293b", borderRadius:8, padding:12, border:"1px solid #334155", display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:10, height:10, borderRadius:"50%", background:scColors.dot }} />
+                  <span style={{ fontSize:13, fontWeight:700, padding:"3px 10px", borderRadius:5, background:scColors.bg, color:scColors.text }}>{ctcDisplay}</span>
+                  <span style={{ fontSize:11, color:"#64748b" }}>Live from sheet</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#475569", fontSize:13 }}>
+          {rows.length===0?"No deals found.":"Select a deal."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
